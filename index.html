@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+        <title>reveal.js</title>
+
+        <link rel="stylesheet" href="css/reveal.css">
+        <link rel="stylesheet" href="css/theme/black.css">
+
+        <!-- Theme used for syntax highlighting of code -->
+        <link rel="stylesheet" href="lib/css/sky.css">
+
+        <!-- Printing and PDF exports -->
+        <script>
+            var link = document.createElement( 'link' );
+            link.rel = 'stylesheet';
+            link.type = 'text/css';
+            link.href = window.location.search.match( /print-pdf/gi ) ? 'css/print/pdf.css' : 'css/print/paper.css';
+            document.getElementsByTagName( 'head' )[0].appendChild( link );
+        </script>
+    </head>
+    <body>
+        <div class="reveal">
+            <div class="slides">
+
+                <section data-markdown>
+                    # Deep dive into linux containers in Docker
+                </section>
+
+                <section data-markdown>
+                    ## Outline
+
+                    * What is Linux container?
+                    * The building blocks
+                        - Namepsaces
+                        - Cgroups
+                        - Layered filesystem
+                        - User-space tools
+                    * Summary
+                </section>
+
+                <!-- 1. What is Linux container -->
+
+                <section data-markdown>
+                    ## What is Linux container?
+                </section>
+
+                <section data-markdown>
+                    ### High level overview:
+
+                    * it's lightweight VM
+                </section>
+
+                <section data-markdown>
+                    ### Low level overview:
+
+                    * it's chroot on steroids
+                        - Uses host kernel
+                        - Processes are visible on the host machine
+                    * limitations:
+                        - Can't boot a different OS
+                        - Can't have it's own kernel modules
+
+                </section>
+
+                <section data-markdown>
+                    Container is just a bunch of processes configured to run in isolation.
+                </section>
+
+                <!-- 2. The building blocks -->
+
+                <section data-markdown>
+                    ## The building blocks
+                </section>
+
+                <section data-markdown>
+                    ### Namespaces
+                </section>
+
+                <section data-markdown>
+                    ### Namespaces
+
+                    * Provide processes with their own view of the system
+                    * There are multiple namespaces: *pid*, *net*, *mnt*, uts, ipc, user
+                    * Each process is in one namespace of each type
+                </section>
+
+                <section data-markdown>
+                    ### PID Namespace
+
+                    * Processes within PID namespace only see processes in the same PID namespace
+                    * Each PID namespace has its own numbering starting at 1
+                    * When PID 1 dies, the whole namespace is killed
+                    * Namespaces can be nested
+                    * Processes can have multiple PIDs - one per namespace in which its nested
+
+                    Note:
+                    ```
+                    // Show process tree
+                    ps a -o pidns,pid,cmd --forest
+
+                    // Start new process in existing NS
+                    nsenter -p -t [PID] [CMD]
+                    ```
+                </section>
+
+                <section data-markdown>
+                    ### NET Namespace
+
+                    * Each network namespace has own network stack
+                        * network interfaces (including lo)
+                        * routing tables
+                        * iptables rules
+                        * sockets
+
+                    Note:
+                    Network interface can be only in one namespace at a time
+                </section>
+
+                <section data-markdown>
+                    ### NET Namespace
+
+                    * Typical use-case:
+                        * disable networking (docker run --network=none)
+                        * veth pairs - two virtual interfaces acting as crossover cable
+                        * all the vethXXX bridged together (docker0)
+                        * reuse network stack of other container
+
+                    Note:
+                    ```
+                    ip link add type veth
+
+                    ip netns add epd0
+                    ip netns add epd1
+                    ip link set veth0 netns epd0
+                    ip link set veth1 netns epd1
+
+                    nsenter --net=/run/netns/epd0 /bin/bash
+                    ip link set veth0 up
+                    ip addr add 10.1.1.1/24 dev veth0
+                    nc 4444
+                    ip link delete veth0
+
+                    nsenter --net=/run/netns/epd1 /bin/bash
+                    ip link set veth1 up
+                    ip addr add 10.1.1.2/24 dev veth1
+                    nc 10.1.1.1 4444
+                    ip link delete veth1
+
+                    ip netns delete epd0
+                    ip netns delete epd1
+                    ```
+                </section>
+
+                <section data-markdown>
+                    ### MNT Namespace
+
+                    Set of filesystem mounts that are visible to a process:
+                    * Change filesystem root - "/"
+                    * Private mounts
+                        * scoped /tmp
+                        * masking of /proc, /sys
+                    * Shared mounts
+                    * Hard to pass mount from a namespace to another
+
+                    Note:
+                    ```
+                    unshare -p -f --mount-proc=$PWD/rootfs/proc chroot rootfs /bin/bash
+                    mount --bind -o ro ./ro rootfs/ro
+                    ```
+                </section>
+
+                <section data-markdown>
+                    ### Namepsace manipulation
+
+                    * clone() with extra flags
+                        - exposed by unshare
+                    * materialized by pseudo-files in /proc/&lt; pid &gt;/ns
+                    * destroyed when last porcess of ns exits
+                    * preserve ns by bind-mounting pseudo fs
+                    * it's possible to "enter" ns with setns()
+                        - exposed by nsenter
+                </section>
+
+                <section data-markdown>
+                    ### Layered filesystem
+
+                    * overlayfs
+                </section>
+
+                <section data-markdown>
+                    ### Control groups
+                </section>
+
+                <section data-markdown>
+                    ### Control groups
+
+                    * Resource metering and limiting
+                        - memory
+                        - CPU
+                        - block I/O
+                        - network
+                </section>
+
+                <section data-markdown>
+                    ### Control groups
+
+                    * Each subsystem has a hierarchy tree
+                    * Hierarchies are independent
+                    * Each proces belongs to exaclty 1 node in each hierarhcy
+                    * PID 1 is placed at the root of each hierarchy
+                    * When process is created, it is palced in the same groups as its parent
+                    * Groups are materialized in pseudo-fs (/sys/fs/cgroup)
+
+                    Note:
+                    `systemd-cgls`
+                </section>
+
+                <section data-markdown>
+                    ### memory cgroup
+
+                    * Keeps track of pages used by each group
+                    * Each group can have hard and soft limits
+                    * Hard limits will trigger a per-group customizable OOM killer
+                        - freeze all processes in group
+                        - notify user space
+                        - kill processes
+                        - etc...
+                    * Limits can be set for physical, kernel and total memory
+                    * Pages can be shared across multiple groups
+                    * When pages are shared, the groups "split the bill"
+
+                    Note:
+                    Couter overhead - enabled/disabled on boot time
+                    Sharing when multiple processes reads from the same file
+                    Cost sharing can cause OOM when process leavs a group
+                </section>
+
+                <section data-markdown>
+                    ### cpu cgroup
+
+                    * Keeps track of user/system CPU time
+                    * Allows to set weights
+                    * Can't set CPU limits
+
+                    Note:
+                    1. You give N% to group
+                    1. CPU throttles to lower clock speed?
+                    1. Same with time slot
+                    1. instructions? their speed varies wildly
+                </section>
+
+                <section data-markdown>
+                    ### cpuset cgroup
+                    * Pin groups to specific CPU(s)
+                    * Reserve CPU for specific apps
+                    * Avoid processes bouncing between CPUs
+                </section>
+
+                <section data-markdown>
+                    ### blkio cgroup
+
+                    * Keeps track of I/O for each group
+                    * Set throttle (limits) for each group
+                    * Set relative weights for each group
+                </section>
+
+                <section data-markdown>
+                    ### User-space
+                </section>
+
+                <section data-markdown>
+                     ### User-space
+
+                     * libcontainer/runc
+                     * *lot* of tooling creating docker ecosystem
+                </section>
+
+                <section data-markdown>
+                    ## Summary
+
+                    * Container is just a bunch of processes configured to run in isolation
+                    * Even when you don't run containers... you are in a container
+                    * Each and every process is executed in namespaces and cgroups
+                    * Namespaces = isolation
+                    * Cgroups = resource metering and limiting
+                </section>
+
+                <section data-markdown>
+                    ## Summary
+
+                    * Docker = user space tools + ecosystem
+                    * Docker did not invented containers
+                        - see LXC and others...
+                    * Docker made containers easy to use
+                        - for both developers and admins
+            </div>
+        </div>
+
+        <script src="lib/js/head.min.js"></script>
+        <script src="js/reveal.js"></script>
+
+        <script>
+            // More info about config & dependencies:
+            // - https://github.com/hakimel/reveal.js#configuration
+            // - https://github.com/hakimel/reveal.js#dependencies
+            Reveal.initialize({
+                dependencies: [
+                    { src: 'plugin/markdown/marked.js' },
+                    { src: 'plugin/markdown/markdown.js' },
+                    { src: 'plugin/notes/notes.js', async: true },
+                    { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
+                ],
+                history: true,
+                transition: 'none'
+            });
+        </script>
+    </body>
+</html>
