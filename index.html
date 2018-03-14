@@ -7,7 +7,7 @@
         <title>Deep dive into linux containers in Docker</title>
 
         <link rel="stylesheet" href="css/reveal.css">
-        <link rel="stylesheet" href="css/theme/black.css">
+        <link rel="stylesheet" href="css/theme/erni.css">
 
         <!-- Theme used for syntax highlighting of code -->
         <link rel="stylesheet" href="lib/css/sky.css">
@@ -26,7 +26,9 @@
             <div class="slides">
 
                 <section data-markdown>
-                    # Deep dive into linux containers in Docker
+                    ## Deep dive into
+                    # Linux containers
+                    ## in Docker
                 </section>
 
                 <section data-markdown>
@@ -50,19 +52,18 @@
                 <section data-markdown>
                     ### High level overview:
 
-                    * it's lightweight VM
+                    * It's lightweight VM
                 </section>
 
                 <section data-markdown>
                     ### Low level overview:
 
-                    * it's `chroot` on steroids
+                    * It's `chroot` on steroids
                         - Uses host kernel
                         - Processes are visible on the host machine
-                    * limitations:
+                    * Limitations:
                         - Can't boot a different OS
                         - Can't have it's own kernel modules
-
                 </section>
 
                 <section data-markdown>
@@ -96,11 +97,11 @@
                 <section data-markdown>
                     ### PID Namespace
 
-                    * Processes within PID namespace only see processes in the same PID namespace
-                    * Each PID namespace has its own numbering starting at 1
+                    * Process can only see processes in the same namespace
+                    * Each namespace has own numbering starting at 1
                     * When PID 1 dies, the whole namespace is killed
                     * Namespaces can be nested
-                    * Process can have multiple PIDs - one per namespace in which its nested
+                    * Process has one PID per namespace in which is nested
 
                     Note:
                     ```
@@ -119,7 +120,7 @@
                 <section data-markdown>
                     ### NET Namespace
 
-                    * Each network namespace has own network stack
+                    * Each network namespace has own network stack:
                         * network interfaces (including lo)
                         * routing tables
                         * iptables rules
@@ -177,25 +178,22 @@
 
                     Note:
                     ```
-                    // T1:
-                    mount --bind -o ro ./epd_ro rootfs/ro
-                    umount ./epd_ro/
-
-                    // T2:
-                    unshare -p -f --mount-proc=$PWD/rootfs/proc chroot rootfs /bin/bash
+                    unshare -f -m /bin/bash
+                    mount -o bind private_tmp /tmp
+                    exit
                     ```
                 </section>
 
                 <section data-markdown>
                     ### Namepsace manipulation
 
-                    * clone() with extra flags
+                    * create ns by clone() with extra flags
                         - exposed by unshare
+                    * "enter" ns with setns()
+                        - exposed by nsenter
                     * materialized by pseudo-files in /proc/&lt; pid &gt;/ns
                     * destroyed when last porcess of ns exits
                     * preserve ns by bind-mounting pseudo fs
-                    * it's possible to "enter" ns with setns()
-                        - exposed by nsenter
                 </section>
 
                 <section data-markdown>
@@ -206,10 +204,26 @@
                     * Easy creation of new images
                         - It's basically a snapshot of container FS at some time
                     * Image is immutable, while container can modify data
+                </section>
+
+                <section data-markdown>
+                    ### Layered filesystem
+
                     * Available options:
                         - OverlayFS (file level)
                         - Device mapper (block level)
                         - btrfs, zfs (FS level)
+
+                    Note:
+                    ```
+                    cd /tmp
+                    mkdir lower upper workdir overlay
+                    mount -t overlay -o \
+                    lowerdir=/tmp/lower,\
+                    upperdir=/tmp/upper,\
+                    workdir=/tmp/workdir \
+                    none /tmp/overlay
+                    ```
                 </section>
 
                 <section data-markdown>
@@ -307,7 +321,7 @@
                 </section>
 
                 <section data-markdown>
-                    ## Summary
+                    ### Summary
 
                     * Container is just a bunch of processes configured to run in isolation
                     * Even when you don't run containers... you are in a container
@@ -317,13 +331,20 @@
                 </section>
 
                 <section data-markdown>
-                    ## Summary
+                    ### Summary
 
                     * Docker = user space tools + ecosystem
                     * Docker did not invented containers
                         - see LXC and others...
                     * Docker made containers easy to use
                         - for both developers and admins
+                </section>
+
+                <section data-markdown>
+                    ### Sources:
+                    * [Jérôme Petazzoni: Anatomy of a Container](https://fr.slideshare.net/jpetazzo/anatomy-of-a-container-namespaces-cgroups-some-filesystem-magic-linuxcon)
+                    * TODO
+                </section>
             </div>
         </div>
 
@@ -342,7 +363,7 @@
                     { src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } }
                 ],
                 history: true,
-                transition: 'none'
+                transition: 'none',
             });
         </script>
     </body>
